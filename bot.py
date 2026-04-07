@@ -1,6 +1,7 @@
-
 import os
 import time
+import asyncio
+import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler,
@@ -9,12 +10,12 @@ from telegram.ext import (
 )
 
 # ===== CONFIG =====
-# Grab the token from the Environment Variables panel in your host
+# Set this in your JustRunMy.App "Environment Variables" 
 TOKEN = os.environ.get("BOT_TOKEN") 
+ADMIN_ID = 8503570215 
 DOWNLOAD_PATH = "./downloads/"
-ADMIN_ID = 8503570215  # Your Telegram ID
 
-# Create the downloads folder if it doesn't exist
+# Ensure download directory exists
 os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
 # ===== GLOBAL DATA =====
@@ -25,7 +26,7 @@ user_last_used = {}
 # ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🚀 Send me any video link!\n\nSupports YouTube, Instagram, Shorts, etc."
+        "🚀 Send me any video link!\n\nI support YouTube, Instagram, and more."
     )
 
 # ===== HANDLE MESSAGE =====
@@ -33,7 +34,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     url = update.message.text
 
-    # Track users
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return
+
     users.add(user_id)
 
     # Anti-spam (5 sec)
@@ -42,15 +45,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_last_used[user_id] = time.time()
-
-    # Auto detect platform
-    if "instagram.com" in url:
-        platform = "📸 Instagram Reel detected"
-    elif "youtube.com/shorts" in url or "youtu.be" in url:
-        platform = "🎬 YouTube Short detected"
-    else:
-        platform = "🌐 General link detected"
-
     context.user_data["url"] = url
 
     keyboard = [
@@ -59,82 +53,88 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     await update.message.reply_text(
-        f"{platform}\nChoose format:",
+        "Choose your format:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+# ===== DOWNLOAD LOGIC =====
+def download_func(url, is_video):
+    """Sync function to handle yt-dlp download"""
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best' if is_video else 'bestaudio/best',
+        'outtmpl': f'{DOWNLOAD_PATH}%(title)s.%(ext)s',
+        # This helps bypass some basic bot detection
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    if not is_video:
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        
+        if not is_video:
+            # If converted to audio, filename extension changes to .mp3
+            filename = os.path.splitext(filename)[0] + ".mp3"
+            
+        return filename
 
 # ===== BUTTON HANDLER =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global download_count
-
     query = update.callback_query
     await query.answer()
 
     url = context.user_data.get("url")
-
     if not url:
-        await query.edit_message_text("❌ No URL found")
+        await query.edit_message_text("❌ Link expired. Please send it again.")
         return
 
-    await query.edit_message_text("⏳ Downloading...")
+    await query.edit_message_text("⏳ Downloading... please wait.")
 
-    # Download command
-    if query.data == "video":
-        cmd = f'yt-dlp -f "bv*+ba/best" --merge-output-format mp4 -o "{DOWNLOAD_PATH}%(title)s.%(ext)s" "{url}"'
-    else:
-        cmd = f'yt-dlp -x --audio-format mp3 -o "{DOWNLOAD_PATH}%(title)s.%(ext)s" "{url}"'
+    is_video = (query.data == "video")
 
-    # Execute the download
-    os.system(cmd)
-
-    # Increase download count
-    download_count += 1
-
-    # Get latest file
     try:
-        files = sorted(
-            os.listdir(DOWNLOAD_PATH),
-            key=lambda x: os.path.getctime(os.path.join(DOWNLOAD_PATH, x))
-        )
-        
-        if not files:
-            await query.message.reply_text("❌ Download failed")
-            return
+        # Run the blocking download in a separate thread to keep bot responsive
+        loop = asyncio.get_event_loop()
+        file_path = await loop.run_in_executor(None, download_func, url, is_video)
 
-        latest = files[-1]
-        file_path = os.path.join(DOWNLOAD_PATH, latest)
+        if os.path.exists(file_path):
+            await query.message.reply_document(document=open(file_path, "rb"))
+            download_count += 1
+            os.remove(file_path)  # Cleanup to save server space
+        else:
+            await query.message.reply_text("❌ Error: File not found after download.")
 
-        # Send the file
-        await query.message.reply_document(document=open(file_path, "rb"))
-        
-        # Optional: Delete the file after sending to save server space
-        os.remove(file_path) 
-        
     except Exception as e:
-        await query.message.reply_text("⚠️ File too large to send or an error occurred.")
-        print(f"Error: {e}")
+        print(f"Download Error: {e}")
+        await query.message.reply_text("⚠️ Download failed. YouTube might be blocking this server's IP.")
 
 # ===== ADMIN STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         return
-
     await update.message.reply_text(
-        f"📊 BOT STATS\n\n👥 Users: {len(users)}\n⬇️ Downloads: {download_count}"
+        f"📊 BOT STATS\n\n👥 Unique Users: {len(users)}\n⬇️ Total Downloads: {download_count}"
     )
 
 # ===== MAIN =====
 if __name__ == "__main__":
     if not TOKEN:
-        print("❌ ERROR: BOT_TOKEN environment variable is missing!")
-        exit(1)
-        
-    app = ApplicationBuilder().token(TOKEN).build()
+        print("❌ Error: No BOT_TOKEN found in environment variables!")
+    else:
+        app = ApplicationBuilder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.add_handler(CallbackQueryHandler(button_handler))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("🤖 Bot is running...")
-    app.run_polling()
+        print("🤖 Bot is starting...")
+        app.run_polling()
+    
