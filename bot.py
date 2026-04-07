@@ -9,9 +9,13 @@ from telegram.ext import (
 )
 
 # ===== CONFIG =====
-TOKEN = "8743369220:AAETlAJ9LDQANr63AzFwEgPU5xYoJHRuKj8"
-DOWNLOAD_PATH = "/data/data/com.termux/files/home/storage/downloads/"
-ADMIN_ID = 8503570215  # put your Telegram ID
+# Grab the token from the Environment Variables panel in your host
+TOKEN = os.environ.get("BOT_TOKEN") 
+DOWNLOAD_PATH = "./downloads/"
+ADMIN_ID = 8503570215  # Your Telegram ID
+
+# Create the downloads folder if it doesn't exist
+os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
 # ===== GLOBAL DATA =====
 users = set()
@@ -80,42 +84,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         cmd = f'yt-dlp -x --audio-format mp3 -o "{DOWNLOAD_PATH}%(title)s.%(ext)s" "{url}"'
 
+    # Execute the download
     os.system(cmd)
 
     # Increase download count
     download_count += 1
 
     # Get latest file
-    files = sorted(
-        os.listdir(DOWNLOAD_PATH),
-        key=lambda x: os.path.getctime(os.path.join(DOWNLOAD_PATH, x))
-    )
-
-    if not files:
-        await query.message.reply_text("❌ Download failed")
-        return
-
-    latest = files[-1]
-    file_path = os.path.join(DOWNLOAD_PATH, latest)
-
     try:
-        await query.message.reply_document(document=open(file_path, "rb"))
-    except:
-        await query.message.reply_text("⚠️ File too large to send")
+        files = sorted(
+            os.listdir(DOWNLOAD_PATH),
+            key=lambda x: os.path.getctime(os.path.join(DOWNLOAD_PATH, x))
+        )
         
-from flask import Flask
-import threading
+        if not files:
+            await query.message.reply_text("❌ Download failed")
+            return
 
-app_web = Flask('')
+        latest = files[-1]
+        file_path = os.path.join(DOWNLOAD_PATH, latest)
 
-@app_web.route('/')
-def home():
-    return "Bot is alive!"
+        # Send the file
+        await query.message.reply_document(document=open(file_path, "rb"))
+        
+        # Optional: Delete the file after sending to save server space
+        os.remove(file_path) 
+        
+    except Exception as e:
+        await query.message.reply_text("⚠️ File too large to send or an error occurred.")
+        print(f"Error: {e}")
 
-def run():
-    app_web.run(host='0.0.0.0', port=8080)
-
-threading.Thread(target=run).start()
 # ===== ADMIN STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
@@ -126,12 +124,17 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ===== MAIN =====
-app = ApplicationBuilder().token(TOKEN).build()
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ ERROR: BOT_TOKEN environment variable is missing!")
+        exit(1)
+        
+    app = ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("stats", stats))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-print("🤖 Bot is running...")
-app.run_polling()
+    print("🤖 Bot is running...")
+    app.run_polling()
