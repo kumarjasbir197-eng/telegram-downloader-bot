@@ -102,7 +102,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_document(document=open(file_path, "rb"))
     except:
         await query.message.reply_text("⚠️ File too large to send")
+        
+from flask import Flask
+import threading
 
+app_web = Flask('')
+
+@app_web.route('/')
+def home():
+    return "Bot is alive!"
+
+def run():
+    app_web.run(host='0.0.0.0', port=8080)
+
+threading.Thread(target=run).start()
 # ===== ADMIN STATS =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
