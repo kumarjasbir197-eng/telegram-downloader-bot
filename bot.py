@@ -9,7 +9,6 @@ from flask import Flask
 from waitress import serve
 
 # ================= CONFIG =================
-# Read environment variables with valid names
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
@@ -18,7 +17,7 @@ SESSION_NAME = "bot_session"
 DOWNLOAD_FOLDER = "downloads"
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
 DAILY_LIMIT = 5
-HTTP_PORT = int(os.environ.get("PORT", 8080))  # JustRunMy.App uses $PORT
+HTTP_PORT = int(os.environ.get("PORT", 8080))
 
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
@@ -70,9 +69,7 @@ def download_with_aria2(url, mode, message):
         "noplaylist": True,
         "progress_hooks": [hook],
         "external_downloader": "aria2c",
-        "external_downloader_args": [
-            "-x", "16", "-s", "16", "-k", "1M", "--file-allocation=none"
-        ],
+        "external_downloader_args": ["-x", "16", "-s", "16", "-k", "1M", "--file-allocation=none"],
     }
 
     if mode == "audio":
@@ -80,10 +77,7 @@ def download_with_aria2(url, mode, message):
             {
                 "format": "bestaudio/best",
                 "postprocessors": [
-                    {
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                    }
+                    {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}
                 ],
             }
         )
@@ -110,10 +104,7 @@ def queue_worker():
                     link = f"http://127.0.0.1:{HTTP_PORT}/{os.path.basename(file_path)}"
                     client.send_message(chat_id, f"⚠️ File too large\n📥 {link}")
 
-                threading.Timer(
-                    86400,
-                    lambda: os.remove(file_path) if os.path.exists(file_path) else None,
-                ).start()
+                threading.Timer(86400, lambda: os.remove(file_path) if os.path.exists(file_path) else None).start()
 
             except Exception as e:
                 client.send_message(chat_id, f"❌ Error: {e}")
@@ -149,9 +140,7 @@ async def handler(event):
     user_data[chat_id] = event.text
     await event.respond(
         "🎬 Choose format:",
-        buttons=[
-            [Button.inline("🎥 Video", b"video"), Button.inline("🎵 Audio", b"audio")]
-        ],
+        buttons=[[Button.inline("🎥 Video", b"video"), Button.inline("🎵 Audio", b"audio")]],
     )
 
 @client.on(events.CallbackQuery)
