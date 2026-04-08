@@ -2,7 +2,6 @@ import os
 import time
 import threading
 import asyncio
-
 from telethon import TelegramClient, events, Button
 import yt_dlp
 from flask import Flask
@@ -15,7 +14,7 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
 SESSION_NAME = "bot_session"
 DOWNLOAD_FOLDER = "downloads"
-MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
+MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 DAILY_LIMIT = 5
 HTTP_PORT = int(os.environ.get("PORT", 8080))
 
@@ -56,7 +55,8 @@ async def progress_hook(d, message):
         except:
             pass
 
-def download_with_aria2(url, mode, message):
+# ================= DOWNLOAD =================
+def download_file(url, mode, message):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -68,8 +68,7 @@ def download_with_aria2(url, mode, message):
         "restrictfilenames": True,
         "noplaylist": True,
         "progress_hooks": [hook],
-        "external_downloader": "aria2c",
-        "external_downloader_args": ["-x", "16", "-s", "16", "-k", "1M", "--file-allocation=none"],
+        # Replit: do not use external downloader
     }
 
     if mode == "audio":
@@ -95,16 +94,18 @@ def queue_worker():
             chat_id, url, mode = download_queue.pop(0)
             try:
                 msg = client.send_message(chat_id, "⏳ Starting download...")
-                file_path = download_with_aria2(url, mode, msg)
+                file_path = download_file(url, mode, msg)
                 size = os.path.getsize(file_path)
 
                 if size <= MAX_FILE_SIZE:
                     client.send_file(chat_id, file_path)
                 else:
-                    link = f"http://127.0.0.1:{HTTP_PORT}/{os.path.basename(file_path)}"
-                    client.send_message(chat_id, f"⚠️ File too large\n📥 {link}")
+                    client.send_message(chat_id, "❌ File too large to send directly (max 2GB)")
 
-                threading.Timer(86400, lambda: os.remove(file_path) if os.path.exists(file_path) else None).start()
+                # Auto-delete file after 24h
+                threading.Timer(
+                    86400, lambda: os.remove(file_path) if os.path.exists(file_path) else None
+                ).start()
 
             except Exception as e:
                 client.send_message(chat_id, f"❌ Error: {e}")
@@ -154,6 +155,6 @@ async def callback(event):
     await event.edit(f"🚀 {mode.capitalize()} downloading...")
 
 # ================= RUN BOT =================
-print("🔥 Bot running with ARIA2 + HTTP keep-alive...")
+print("🔥 Bot running 24/7 on Replit!")
 client.start()
 client.run_until_disconnected()
